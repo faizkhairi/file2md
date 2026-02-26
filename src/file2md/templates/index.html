@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>file2md — Convert PDF/DOCX to Markdown</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            color: #f8fafc;
+        }
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+        }
+        .drop-zone {
+            border: 2px dashed #475569;
+            border-radius: 12px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #1e293b;
+            margin-bottom: 1.5rem;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #3b82f6;
+            background: #1e3a5f;
+        }
+        .drop-zone.has-file {
+            border-color: #22c55e;
+            background: #14532d20;
+        }
+        .drop-zone svg {
+            width: 48px;
+            height: 48px;
+            fill: #64748b;
+            margin-bottom: 1rem;
+        }
+        .drop-zone.dragover svg { fill: #3b82f6; }
+        .drop-zone.has-file svg { fill: #22c55e; }
+        .drop-text { color: #94a3b8; margin-bottom: 0.5rem; }
+        .drop-hint { color: #64748b; font-size: 0.85rem; }
+        .file-name {
+            color: #22c55e;
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+        }
+        .file-size { color: #94a3b8; font-size: 0.85rem; }
+        input[type="file"] { display: none; }
+        .options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        .option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 0.75rem;
+            background: #1e293b;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+            font-size: 0.9rem;
+        }
+        .option:hover { background: #334155; }
+        .option input[type="checkbox"] {
+            accent-color: #3b82f6;
+            width: 16px;
+            height: 16px;
+        }
+        .option label { cursor: pointer; flex: 1; }
+        .btn {
+            width: 100%;
+            padding: 0.9rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1rem;
+        }
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) { background: #2563eb; }
+        .btn-primary:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            color: #94a3b8;
+        }
+        .status {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+        .status.error {
+            display: block;
+            background: #7f1d1d30;
+            border: 1px solid #991b1b;
+            color: #fca5a5;
+        }
+        .status.success {
+            display: block;
+            background: #14532d30;
+            border: 1px solid #166534;
+            color: #86efac;
+        }
+        .status.loading {
+            display: block;
+            background: #1e3a5f;
+            border: 1px solid #1d4ed8;
+            color: #93c5fd;
+        }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #93c5fd;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 0.5rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        footer {
+            margin-top: auto;
+            padding-top: 2rem;
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+        footer a { color: #94a3b8; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>file2md</h1>
+    <p class="subtitle">Convert PDF and DOCX to clean Markdown</p>
+
+    <div class="container">
+        <div class="drop-zone" id="dropZone">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+            </svg>
+            <p class="drop-text" id="dropText">Drop your PDF or DOCX here</p>
+            <p class="drop-hint" id="dropHint">or click to browse</p>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf,.docx">
+
+        <div class="options">
+            <div class="option">
+                <input type="checkbox" id="optClean" checked>
+                <label for="optClean">Clean whitespace</label>
+            </div>
+            <div class="option">
+                <input type="checkbox" id="optFrontmatter">
+                <label for="optFrontmatter">Add frontmatter</label>
+            </div>
+            <div class="option">
+                <input type="checkbox" id="optPageLabels">
+                <label for="optPageLabels">Page labels</label>
+            </div>
+            <div class="option">
+                <input type="checkbox" id="optTables">
+                <label for="optTables">Extract tables</label>
+            </div>
+        </div>
+
+        <button class="btn btn-primary" id="convertBtn" disabled>Convert to Markdown</button>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <footer>
+        file2md v{{ version }} &mdash;
+        <a href="https://github.com/faizkhairi/file2md" target="_blank">GitHub</a>
+    </footer>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const dropText = document.getElementById('dropText');
+        const dropHint = document.getElementById('dropHint');
+        const convertBtn = document.getElementById('convertBtn');
+        const status = document.getElementById('status');
+
+        let selectedFile = null;
+
+        // Drag and drop
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleFile(files[0]);
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) handleFile(fileInput.files[0]);
+        });
+
+        function handleFile(file) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (!['pdf', 'docx'].includes(ext)) {
+                showStatus('error', 'Unsupported file type. Only .pdf and .docx are accepted.');
+                return;
+            }
+            if (file.size > 50 * 1024 * 1024) {
+                showStatus('error', 'File too large. Maximum size is 50 MB.');
+                return;
+            }
+            selectedFile = file;
+            dropZone.classList.add('has-file');
+            dropText.innerHTML = `<span class="file-name">${escapeHtml(file.name)}</span>`;
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            dropHint.innerHTML = `<span class="file-size">${sizeMB} MB</span>`;
+            convertBtn.disabled = false;
+            hideStatus();
+        }
+
+        // Convert
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            convertBtn.disabled = true;
+            showStatus('loading', '<span class="spinner"></span> Converting...');
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('clean', document.getElementById('optClean').checked);
+            formData.append('frontmatter', document.getElementById('optFrontmatter').checked);
+            formData.append('page_labels', document.getElementById('optPageLabels').checked);
+            formData.append('extract_tables', document.getElementById('optTables').checked);
+
+            try {
+                const response = await fetch('/convert', { method: 'POST', body: formData });
+
+                if (!response.ok) {
+                    let detail = 'Conversion failed.';
+                    try {
+                        const err = await response.json();
+                        detail = err.detail || detail;
+                    } catch { /* ignore */ }
+                    showStatus('error', detail);
+                    convertBtn.disabled = false;
+                    return;
+                }
+
+                // Trigger download
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="(.+)"/);
+                a.download = match ? match[1] : selectedFile.name.replace(/\.[^.]+$/, '.md');
+                a.href = url;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                const warnings = response.headers.get('X-Conversion-Warnings');
+                let msg = 'Conversion complete! Your download should start automatically.';
+                if (warnings) msg += '<br><small>Warnings: ' + escapeHtml(warnings) + '</small>';
+                showStatus('success', msg);
+            } catch (err) {
+                showStatus('error', 'Network error: ' + escapeHtml(err.message));
+            }
+
+            convertBtn.disabled = false;
+        });
+
+        function showStatus(type, message) {
+            status.className = 'status ' + type;
+            status.innerHTML = message;
+        }
+
+        function hideStatus() {
+            status.className = 'status';
+            status.innerHTML = '';
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
