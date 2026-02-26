@@ -6,6 +6,8 @@ Convert PDF and DOCX files to clean, grep-friendly Markdown optimized for AI too
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+**[Try the Web UI](https://file2md.onrender.com)** | **[PyPI](https://pypi.org/project/file2md/)**
+
 ## Features
 
 - **PDF conversion** — text extraction with PyMuPDF, page separators, scanned PDF detection
