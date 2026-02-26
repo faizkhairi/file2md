@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
 
+from . import __version__
+
 
 class ExitCode(IntEnum):
     """CLI exit codes."""
@@ -111,8 +113,9 @@ def build_metadata(path: Path, options: ConversionOptions, timestamp: str | None
             "---\n"
             f"source: {path.name}\n"
             f"converted: {timestamp}\n"
-            f"converter: file2md v0.1.0\n"
+            f"converter: file2md v{__version__}\n"
             "---"
         )
 
-    return f"<!-- source: {path.name} | converted: {timestamp} | converter: file2md v0.1.0 -->"
+    ver = f"file2md v{__version__}"
+    return f"<!-- source: {path.name} | converted: {timestamp} | converter: {ver} -->"

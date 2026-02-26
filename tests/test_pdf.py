@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pymupdf
 
-from file2md.pdf import convert_pdf, is_scanned_page
+from file2md.pdf import _detect_images, _strip_leading_spaces, convert_pdf, is_scanned_page
 from file2md.utils import ConversionOptions, ExitCode
 
 
@@ -70,3 +70,75 @@ class TestIsScannedPage:
         # Empty page with no text AND no images is not "scanned"
         assert not is_scanned_page(doc[0])
         doc.close()
+
+
+class TestStripLeadingSpaces:
+    def test_strips_indented_lines(self) -> None:
+        text = "   Indented line\n      More indented\nNormal"
+        result = _strip_leading_spaces(text)
+        assert result == "Indented line\nMore indented\nNormal"
+
+    def test_preserves_empty_lines(self) -> None:
+        text = "Line 1\n\nLine 2"
+        result = _strip_leading_spaces(text)
+        assert result == "Line 1\n\nLine 2"
+
+
+class TestDetectImages:
+    def test_detects_large_image(self, pdf_with_images: Path) -> None:
+        doc = pymupdf.open(str(pdf_with_images))
+        result = _detect_images(doc[0], 1)
+        assert "<!-- [image: figure on page 1] -->" in result
+        doc.close()
+
+    def test_no_images_on_text_page(self, single_page_pdf: Path) -> None:
+        doc = pymupdf.open(str(single_page_pdf))
+        result = _detect_images(doc[0], 1)
+        assert result == ""
+        doc.close()
+
+    def test_empty_page_no_images(self, empty_pdf: Path) -> None:
+        doc = pymupdf.open(str(empty_pdf))
+        result = _detect_images(doc[0], 1)
+        assert result == ""
+        doc.close()
+
+
+class TestPipelineIntegration:
+    def test_clean_strips_leading_spaces(self, pdf_with_leading_spaces: Path) -> None:
+        options = ConversionOptions(clean=True)
+        result = convert_pdf(pdf_with_leading_spaces, options)
+        # Lines should not start with excessive whitespace
+        for line in result.markdown.split("\n"):
+            stripped = line.lstrip()
+            if stripped:
+                # Allow up to 1 space (from markdown formatting) but not 5+
+                assert len(line) - len(stripped) < 5, f"Excessive leading space: {line!r}"
+
+    def test_clean_detects_4_line_headers(self, pdf_with_4_line_headers: Path) -> None:
+        options = ConversionOptions(clean=True)
+        result = convert_pdf(pdf_with_4_line_headers, options)
+        # "Confidential" appears on every page — should be removed
+        # Count occurrences in content (excluding the removed patterns comment)
+        content_lines = [
+            line for line in result.markdown.split("\n")
+            if not line.startswith("<!-- Removed")
+        ]
+        content = "\n".join(content_lines)
+        assert "Confidential" not in content
+
+    def test_image_placeholders_in_clean_mode(self, pdf_with_images: Path) -> None:
+        options = ConversionOptions(clean=True)
+        result = convert_pdf(pdf_with_images, options)
+        assert "<!-- [image: figure on page 1] -->" in result.markdown
+
+    def test_no_image_placeholders_in_raw_mode(self, pdf_with_images: Path) -> None:
+        options = ConversionOptions(clean=False)
+        result = convert_pdf(pdf_with_images, options)
+        assert "<!-- [image:" not in result.markdown
+
+    def test_toc_cleanup_in_clean_mode(self, pdf_with_toc: Path) -> None:
+        options = ConversionOptions(clean=True)
+        result = convert_pdf(pdf_with_toc, options)
+        assert "- Introduction (p. 5)" in result.markdown
+        assert ".........." not in result.markdown

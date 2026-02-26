@@ -138,3 +138,78 @@ def empty_pdf(tmp_path: Path) -> Path:
     doc.save(str(path))
     doc.close()
     return path
+
+
+@pytest.fixture
+def pdf_with_4_line_headers(tmp_path: Path) -> Path:
+    """Generate a PDF with 4-line headers that exceed n_check=3."""
+    doc = pymupdf.open()
+
+    for page_num in range(1, 5):
+        page = doc.new_page()
+        # 4-line header block
+        page.insert_text((72, 50), "MyDigital Integration Guideline", fontsize=10)
+        page.insert_text((72, 65), "SSO Service Provider", fontsize=10)
+        page.insert_text((72, 80), "Document ID: PP24176 v5.0A", fontsize=8)
+        page.insert_text((72, 95), "Confidential", fontsize=8)
+        # Enough content lines for n_check to reach 4+ (need 20+ lines)
+        y = 140
+        for line_num in range(1, 18):
+            page.insert_text((72, y), f"Content line {line_num} for page {page_num}.")
+            y += 18
+        # Footer
+        page.insert_text((72, 750), f"Page {page_num} of 4")
+
+    path = tmp_path / "headers_4_line.pdf"
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def pdf_with_leading_spaces(tmp_path: Path) -> Path:
+    """Generate a PDF with indented text (simulating enterprise layout)."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    # Indented text at various X positions
+    page.insert_text((150, 72), "3.1.1 Section Title", fontsize=12)
+    page.insert_text((150, 100), "This paragraph is indented in the PDF layout.")
+    page.insert_text((200, 130), "Even more indented sub-content.")
+    page.insert_text((72, 170), "Normal content at standard position.")
+    path = tmp_path / "leading_spaces.pdf"
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def pdf_with_images(tmp_path: Path) -> Path:
+    """Generate a PDF with text and a large image (mixed page)."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Figure 1: Architecture Diagram", fontsize=12)
+    # Insert a large image covering ~30% of the page
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 300, 300), 0)
+    pix.set_rect(pix.irect, (100, 150, 200))
+    page.insert_image(pymupdf.Rect(72, 100, 400, 400), pixmap=pix)
+    page.insert_text((72, 420), "The diagram above shows the system architecture.")
+    path = tmp_path / "with_images.pdf"
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def pdf_with_toc(tmp_path: Path) -> Path:
+    """Generate a PDF with TOC-style dot leader lines."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Table of Contents", fontsize=14)
+    page.insert_text((72, 110), "Introduction .............. 5")
+    page.insert_text((72, 130), "3.1 API Flow ......... 12")
+    page.insert_text((72, 150), "4.0 Security ................. 28")
+    page.insert_text((72, 180), "Regular content without dots.")
+    path = tmp_path / "with_toc.pdf"
+    doc.save(str(path))
+    doc.close()
+    return path

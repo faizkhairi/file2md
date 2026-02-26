@@ -9,8 +9,11 @@ import pymupdf
 
 from .normalize import (
     apply_normalization,
+    clean_toc_lines,
+    dedup_table_columns,
     fix_hyphenation,
     reflow_paragraphs,
+    remove_false_blanks,
     remove_headers_footers,
 )
 from .utils import ConversionOptions, ConversionResult, ExitCode, build_metadata
@@ -39,15 +42,77 @@ def is_scanned_page(page: Any) -> bool:
     return False
 
 
+def _strip_leading_spaces(text: str) -> str:
+    """Strip leading whitespace from each line.
+
+    PyMuPDF preserves X-coordinate positioning as leading spaces,
+    which produces indented lines in the output. Strip them.
+    """
+    return "\n".join(line.lstrip() for line in text.split("\n"))
+
+
+def _detect_images(page: Any, page_num: int) -> str:
+    """Detect significant images on a page and return placeholder comments.
+
+    Uses the same get_images() + get_image_bbox() pattern as is_scanned_page().
+    Skips dead entries (empty bboxes). Only includes images covering >10% of
+    the page area.
+
+    Returns:
+        Placeholder comments joined with newlines, or empty string if none.
+    """
+    images = page.get_images(full=True)
+    if not images:
+        return ""
+
+    page_area = abs(page.rect)
+    if page_area <= 0:
+        return ""
+
+    placeholders: list[str] = []
+    for img in images:
+        try:
+            bbox = page.get_image_bbox(img)
+            if bbox.is_empty:
+                continue
+            coverage = abs(bbox) / page_area
+            if coverage >= 0.1:
+                placeholders.append(f"<!-- [image: figure on page {page_num}] -->")
+        except Exception:  # noqa: BLE001
+            continue
+
+    return "\n".join(placeholders)
+
+
+def _extract_tables(page: Any) -> str:
+    """Extract tables from a page as GFM markdown.
+
+    Returns:
+        Table markdown or empty string if no tables found.
+    """
+    try:
+        tables = page.find_tables()
+        parts: list[str] = []
+        for table in tables:
+            md_table = table.to_markdown()
+            if md_table.strip():
+                parts.append(md_table)
+        return "\n\n".join(parts)
+    except Exception:  # noqa: BLE001
+        return ""  # Table extraction is best-effort
+
+
 def convert_pdf(path: Path, options: ConversionOptions) -> ConversionResult:
     """Convert a PDF file to Markdown.
 
-    Args:
-        path: Path to the PDF file.
-        options: Conversion options.
-
-    Returns:
-        ConversionResult with the markdown content.
+    Pipeline (v0.2.0):
+    1. Per-page: extract raw text, tables, and image placeholders as separate streams
+    2. Strip leading spaces from raw text
+    3. Dedup table columns (merged cell fix)
+    4. Header/footer removal on raw text only (before tables injected)
+    5. Recombine per page, then per-page: hyphenation → TOC cleanup →
+       false blank removal → reflow
+    6. Join pages with separators, apply final normalization
     """
     try:
         doc: Any = pymupdf.open(str(path))  # type: ignore[no-untyped-call]
@@ -59,36 +124,38 @@ def convert_pdf(path: Path, options: ConversionOptions) -> ConversionResult:
             exit_code=ExitCode.EXTRACTION_FAILED,
         )
 
-    pages_text: list[str] = []
+    raw_texts: list[str] = []
+    table_texts: list[str] = []
+    image_texts: list[str] = []
     warnings: list[str] = []
     scanned_count = 0
     total_pages = len(doc)
 
-    for page in doc:
+    # Phase 1: Per-page extraction into separate streams
+    for i, page in enumerate(doc, start=1):
         if is_scanned_page(page):
             scanned_count += 1
-            pages_text.append("")
+            raw_texts.append("")
+            table_texts.append("")
+            image_texts.append("")
             continue
 
-        parts: list[str] = []
+        # Extract raw text and strip leading spaces
+        raw_text = page.get_text("text", sort=True)
+        if options.clean:
+            raw_text = _strip_leading_spaces(raw_text)
 
-        # Extract tables if requested
-        if options.extract_tables:
-            try:
-                tables = page.find_tables()
-                for table in tables:
-                    md_table = table.to_markdown()
-                    if md_table.strip():
-                        parts.append(md_table)
-            except Exception:  # noqa: BLE001
-                pass  # Table extraction is best-effort
+        # Detect significant images (clean mode only)
+        image_placeholders = _detect_images(page, i) if options.clean else ""
 
-        # Extract text in reading order
-        text = page.get_text("text", sort=True)
-        if text.strip():
-            parts.append(text)
+        # Extract tables and dedup merged cells
+        table_md = _extract_tables(page) if options.extract_tables else ""
+        if table_md and options.clean:
+            table_md = dedup_table_columns(table_md)
 
-        pages_text.append("\n\n".join(parts))
+        raw_texts.append(raw_text)
+        table_texts.append(table_md)
+        image_texts.append(image_placeholders)
 
     doc.close()
 
@@ -105,28 +172,39 @@ def convert_pdf(path: Path, options: ConversionOptions) -> ConversionResult:
     if scanned_count > 0:
         warnings.append(f"{scanned_count} scanned page(s) skipped (no extractable text)")
 
-    # Apply header/footer removal
+    # Phase 2: Header/footer removal on RAW TEXT and TABLE TEXT separately
     removed_patterns: list[str] = []
     if options.clean:
-        non_empty = [p for p in pages_text if p.strip()]
+        non_empty = [p for p in raw_texts if p.strip()]
         if len(non_empty) >= 3:
-            pages_text, removed_patterns = remove_headers_footers(pages_text)
+            raw_texts, removed_patterns = remove_headers_footers(raw_texts)
+        # Also check table texts for repeating header/footer tables
+        non_empty_tables = [p for p in table_texts if p.strip()]
+        if len(non_empty_tables) >= 3:
+            table_texts, table_removed = remove_headers_footers(table_texts)
+            removed_patterns.extend(table_removed)
 
-    # Build final markdown with page separators
+    # Phase 3: Recombine and apply per-page cleanup
     sections: list[str] = []
-    for i, page_text in enumerate(pages_text, start=1):
-        if not page_text.strip():
+    for i, (raw, tables, images) in enumerate(
+        zip(raw_texts, table_texts, image_texts, strict=True), start=1
+    ):
+        parts = [p for p in [images, tables, raw] if p.strip()]
+        if not parts:
             continue
 
-        processed = page_text
+        page_text = "\n\n".join(parts)
+
         if options.clean:
-            processed = fix_hyphenation(processed)
-            processed = reflow_paragraphs(processed)
+            page_text = fix_hyphenation(page_text)
+            page_text = clean_toc_lines(page_text)
+            page_text = remove_false_blanks(page_text)
+            page_text = reflow_paragraphs(page_text)
 
         if options.page_labels:
-            sections.append(f"## Page {i}\n\n{processed.strip()}")
+            sections.append(f"## Page {i}\n\n{page_text.strip()}")
         else:
-            sections.append(processed.strip())
+            sections.append(page_text.strip())
 
     # Join with page separators
     markdown = "\n\n---\n\n".join(sections)
