@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "file2md"
-version = "0.2.0"
+version = "0.3.0"
 description = "Convert PDF and DOCX to clean, grep-friendly Markdown for AI/IDE workflows"
 readme = "README.md"
 license = "MIT"

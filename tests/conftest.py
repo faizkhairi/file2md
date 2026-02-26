@@ -213,3 +213,61 @@ def pdf_with_toc(tmp_path: Path) -> Path:
     doc.save(str(path))
     doc.close()
     return path
+
+
+@pytest.fixture
+def docx_with_toc(tmp_path: Path) -> Path:
+    """Generate a DOCX with Word TOC-style paragraphs (TOC 1, TOC 2)."""
+    from docx.enum.style import WD_STYLE_TYPE  # type: ignore[attr-defined]
+
+    doc = Document()
+    doc.add_heading("Document Title", level=1)
+
+    # Ensure TOC styles exist — they are latent in the default template
+    for name in ("TOC 1", "TOC 2"):
+        try:
+            doc.styles[name]
+        except KeyError:
+            doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+
+    p1 = doc.add_paragraph("Introduction\t5")
+    p1.style = doc.styles["TOC 1"]
+
+    p2 = doc.add_paragraph("1.1 Overview\t7")
+    p2.style = doc.styles["TOC 2"]
+
+    doc.add_paragraph("Regular content paragraph.")
+
+    path = tmp_path / "with_toc.docx"
+    doc.save(str(path))
+    return path
+
+
+@pytest.fixture
+def docx_with_images(tmp_path: Path) -> Path:
+    """Generate a DOCX with an embedded inline image."""
+    import struct
+    import zlib
+    from io import BytesIO
+
+    doc = Document()
+    doc.add_heading("Document with Images", level=1)
+    doc.add_paragraph("Before the image.")
+
+    # Build a minimal valid 1×1 white RGB PNG without requiring Pillow
+    def png_chunk(name: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(name + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", crc)
+
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n"
+        + png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + png_chunk(b"IDAT", zlib.compress(b"\x00\xff\xff\xff"))
+        + png_chunk(b"IEND", b"")
+    )
+    doc.add_picture(BytesIO(png_bytes), width=914400)  # 1 inch = 914400 EMU
+    doc.add_paragraph("After the image.")
+
+    path = tmp_path / "with_images.docx"
+    doc.save(str(path))
+    return path

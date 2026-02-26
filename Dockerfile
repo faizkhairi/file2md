@@ -7,6 +7,4 @@ COPY src/ src/
 
 RUN pip install --no-cache-dir ".[web]"
 
-EXPOSE 8000
-
-CMD ["uvicorn", "file2md.web:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn file2md.web:app --host 0.0.0.0 --port ${PORT:-8000}"]

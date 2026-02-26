@@ -62,3 +62,32 @@ class TestConvertDocx:
     def test_nonexistent_file(self, tmp_path: Path) -> None:
         result = convert_docx(tmp_path / "nope.docx", ConversionOptions())
         assert result.exit_code == ExitCode.EXTRACTION_FAILED
+
+
+class TestTocDetection:
+    def test_toc1_converts_to_list_item(self, docx_with_toc: Path) -> None:
+        result = convert_docx(docx_with_toc, ConversionOptions())
+        assert "- Introduction (p. 5)" in result.markdown
+
+    def test_toc2_indented(self, docx_with_toc: Path) -> None:
+        result = convert_docx(docx_with_toc, ConversionOptions())
+        assert "  - 1.1 Overview (p. 7)" in result.markdown
+
+    def test_regular_content_preserved(self, docx_with_toc: Path) -> None:
+        result = convert_docx(docx_with_toc, ConversionOptions())
+        assert "Regular content paragraph." in result.markdown
+
+
+class TestDocxImages:
+    def test_image_placeholder_in_clean_mode(self, docx_with_images: Path) -> None:
+        result = convert_docx(docx_with_images, ConversionOptions(clean=True))
+        assert "<!-- [image: embedded figure] -->" in result.markdown
+
+    def test_no_image_placeholder_in_raw_mode(self, docx_with_images: Path) -> None:
+        result = convert_docx(docx_with_images, ConversionOptions(clean=False))
+        assert "<!-- [image:" not in result.markdown
+
+    def test_surrounding_text_preserved(self, docx_with_images: Path) -> None:
+        result = convert_docx(docx_with_images, ConversionOptions(clean=True))
+        assert "Before the image." in result.markdown
+        assert "After the image." in result.markdown

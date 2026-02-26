@@ -249,4 +249,5 @@ def apply_normalization(text: str) -> str:
     """Apply all normalization steps to markdown text."""
     text = normalize_whitespace(text)
     text = collapse_blank_lines(text)
+    text = clean_toc_lines(text)
     return text.strip() + "\n"

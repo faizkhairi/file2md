@@ -270,3 +270,10 @@ class TestApplyNormalization:
         assert "Hello world" in result
         assert "\r" not in result
         assert result.endswith("\n")
+
+    def test_clean_toc_lines_included(self) -> None:
+        """apply_normalization should clean dot-leader TOC lines."""
+        text = "Introduction .............. 5"
+        result = apply_normalization(text)
+        assert "- Introduction (p. 5)" in result
+        assert "....." not in result

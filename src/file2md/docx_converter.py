@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
-from .normalize import apply_normalization
+from .normalize import apply_normalization, dedup_table_columns
 from .utils import ConversionOptions, ConversionResult, ExitCode, build_metadata
 
 
@@ -43,7 +43,7 @@ def convert_docx(path: Path, options: ConversionOptions) -> ConversionResult:
         if tag == "p":
             para = _find_paragraph(doc, element)
             if para is not None:
-                md = _convert_paragraph(para)
+                md = _convert_paragraph(para, clean=options.clean)
                 if md is not None:
                     parts.append(md)
 
@@ -93,10 +93,10 @@ def _find_table(doc: Any, element: object) -> Table | None:
     return None
 
 
-def _convert_paragraph(para: Paragraph) -> str | None:
+def _convert_paragraph(para: Paragraph, clean: bool = False) -> str | None:
     """Convert a DOCX paragraph to Markdown."""
     style_name = (para.style.name or "").lower() if para.style else ""
-    text = _extract_runs(para)
+    text = _extract_runs(para, clean=clean)
 
     if not text.strip():
         return None
@@ -110,6 +110,22 @@ def _convert_paragraph(para: Paragraph) -> str | None:
             level = 1
         prefix = "#" * level
         return f"{prefix} {text}"
+
+    # TOC entries — Word auto-generated TOC styles: "TOC 1", "TOC 2", "TOC 3", etc.
+    # Word stores title and page number separated by a tab character.
+    if style_name.startswith("toc"):
+        level_str = style_name.replace("toc", "").strip()
+        try:
+            level = max(1, int(level_str))
+        except ValueError:
+            level = 1
+        indent = "  " * (level - 1)
+        if "\t" in text:
+            toc_parts = text.rsplit("\t", 1)
+            title, page = toc_parts[0].strip(), toc_parts[1].strip()
+            if page.isdigit():
+                return f"{indent}- {title} (p. {page})"
+        return f"{indent}- {text.strip()}"
 
     # List items — style-name based detection
     if _is_bullet_list(para, style_name):
@@ -209,11 +225,18 @@ def _resolve_num_format(para: Paragraph, num_pr: object) -> str | None:
     return None
 
 
-def _extract_runs(para: Paragraph) -> str:
+def _extract_runs(para: Paragraph, clean: bool = False) -> str:
     """Extract text from paragraph runs with inline formatting."""
     parts: list[str] = []
 
     for run in para.runs:
+        # Detect embedded images: w:drawing (modern) or w:pict (legacy OLE)
+        if clean and (
+            run._element.find(qn("w:drawing")) is not None
+            or run._element.find(qn("w:pict")) is not None
+        ):
+            parts.append("<!-- [image: embedded figure] -->")
+            continue
         text = run.text
         if not text:
             continue
@@ -270,4 +293,4 @@ def _convert_table(table: Table) -> str:
         separator = "| " + " | ".join(["---"] * col_count) + " |"
         rows.insert(1, separator)
 
-    return "\n".join(rows)
+    return dedup_table_columns("\n".join(rows))
